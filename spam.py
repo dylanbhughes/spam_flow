@@ -1,10 +1,14 @@
 import httplib2
 import os
 import random
+
 from apiclient import discovery
 from google.oauth2 import service_account
+
 from prefect import task, Flow
+from prefect.environments import LocalEnvironment
 from prefect.environments.storage import Docker
+from prefect.tasks.secrets import PrefectSecret
 
 # The ID and range of a sample spreadsheet.
 SPREADSHEET_ID = "1ShLYjnxdtjIu_CHOBjQvAK9XT3ZYNa6pWrPGkygn35I"
@@ -30,7 +34,7 @@ def choose_spam_picture():
 
 
 @task(name="Insert Picture Into Google Sheet")
-def insert_picture_into_google_sheet(spam_picture):
+def insert_picture_into_google_sheet(spam_picture, file_uri):
     # # The A1 notation of a range to search for a logical table of data.
     # # Values will be appended after the last row of the table.
     range_ = "A1:E"
@@ -43,8 +47,7 @@ def insert_picture_into_google_sheet(spam_picture):
         "https://www.googleapis.com/auth/drive.file",
         "https://www.googleapis.com/auth/spreadsheets",
     ]
-    secret_file = os.path.join(os.getcwd(), "creds.json")
-    spreadsheet_id = "1EC_FIA2ZpydWxBsuUaQIUUpcYk3mm6VYWMs4Q4cn26c"
+    secret_file = file_uri
     range_name = "!A1:D2"
     credentials = service_account.Credentials.from_service_account_file(
         secret_file, scopes=scopes
@@ -65,25 +68,16 @@ def insert_picture_into_google_sheet(spam_picture):
 
 storage = Docker(
     prefect_version="0.13.3",
-    registry_url="gcr.io/prefect-staging-5cd57f/data-warehouse/elt-to-data-warehouse/",
+    registry_url="gcr.io/tenant-prod-db384e/sarahs_project/spam_flow",
     base_image="python:3.8",
     python_dependencies=[
-        "gcsfs",
-        "google-cloud-firestore",
-        "google-cloud-bigquery",
-        "google-cloud-storage",
-        "pandas",
-        "pendulum",
-        "psycopg2",
-        "sqlalchemy",
+        "google-api-python-client",
+        "google-auth-httplib2",
+        "google-auth-oauthlib",
     ],
-    files={
-        "/Users/dylanhughes/dev/service-account-keys/prefect-data-warehouse-4579f7d4de1d.json": "/root/.prefect/prefect-data-warehouse-credentials.json"
-    },
-    env_vars={
-        "GOOGLE_APPLICATION_CREDENTIALS": "/root/.prefect/prefect-data-warehouse-credentials.json"
-    },
+    files={"/Users/dylanhughes/dev/spam_flow/creds.json": "/root/.prefect/creds.json"},
 )
-with Flow("Spam Mikey!") as flow:
+with Flow(name="Spam Mikey!", storage=storage,) as flow:
+    file_uri = PrefectSecret("SPAM_FLOW_FILE_URI")
     spam_pic = choose_spam_picture()
-    insert_picture_into_google_sheet(spam_pic)
+    insert_picture_into_google_sheet(spam_pic, file_uri)
